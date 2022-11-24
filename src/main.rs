@@ -1,67 +1,85 @@
 #![feature(panic_info_message)]
 
-use axum::{routing::get, Router};
-use std::net::SocketAddr;
-use std::panic;
-use tracing::{error, info};
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+mod instrument;
 
 #[tokio::main]
 async fn main() {
-	setup_tracing();
+	instrument::init();
 
-	let router = create_router();
-	setup_server(router).await;
+	let router = {
+		let router = router::create();
+
+		instrument::axum::setup(router)
+	};
+
+	server::init(router).await;
+
+	instrument::stop();
 }
 
-fn setup_tracing() {
-	let format = fmt::layer()
-		.with_file(true)
-		.with_target(true)
-		.with_level(true)
-		.with_line_number(true)
-		.with_ansi(true)
-		.with_thread_ids(true)
-		.json();
+mod router {
+	use axum::{routing::get, Router};
+	use reqwest_middleware::{ClientBuilder, Extension};
+	use reqwest_tracing::{OtelName, TracingMiddleware};
 
-	let max_level = EnvFilter::try_from_env("LOG_LEVEL")
-		.or_else(|_| EnvFilter::try_new("info"))
-		.unwrap();
+	pub fn create() -> Router {
+		Router::new()
+			.route("/", get(root))
+			.route("/health", get(health))
+			.route("/hello", get(hello))
+	}
 
-	tracing_subscriber::registry()
-		.with(max_level)
-		.with(format)
-		.init();
+	async fn root() -> String {
+		let reqwest_client = reqwest::Client::builder().build().unwrap();
+		let client = ClientBuilder::new(reqwest_client)
+			.with_init(Extension(OtelName("localhost".into())))
+			.with(TracingMiddleware::default())
+			.build();
 
-	panic::set_hook(Box::new(|info| {
-		let message = match info.message() {
-			Some(msg) => msg.to_string(),
-			None => String::from("application crashed"),
-		};
+		let response = client
+			.get("http://localhost:3000/health")
+			.send()
+			.await
+			.unwrap()
+			.text()
+			.await
+			.unwrap();
 
-		let (file, line) = match info.location() {
-			Some(location) => (Some(location.file()), Some(location.line())),
-			None => (None, None),
-		};
+		format!("Got response: {:?}", response)
+	}
 
-		error!(message, file = file, line = line)
-	}))
+	async fn health() -> &'static str {
+		"I'm healthy"
+	}
+
+	async fn hello() -> &'static str {
+		"Hello, World!"
+	}
 }
 
-fn create_router() -> Router {
-	Router::new().route("/", get(|| async { "Hello, World!" }))
-}
+mod server {
+	use axum::Router;
+	use std::net::SocketAddr;
+	use tracing::info;
 
-async fn setup_server(router: Router) {
-	let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
-	info!(
-		port = addr.port(),
-		ip = addr.ip().to_string(),
-		"starting server"
-	);
+	pub async fn init(router: Router) {
+		let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+		info!(
+			port = addr.port(),
+			ip = addr.ip().to_string(),
+			"starting server"
+		);
 
-	axum::Server::bind(&addr)
-		.serve(router.into_make_service())
-		.await
-		.expect("unable to start server");
+		axum::Server::bind(&addr)
+			.serve(router.into_make_service())
+			.with_graceful_shutdown(shutdown_signal())
+			.await
+			.expect("server error");
+	}
+
+	async fn shutdown_signal() {
+		tokio::signal::ctrl_c()
+			.await
+			.expect("failed to install CTRL+C signal handler");
+	}
 }
