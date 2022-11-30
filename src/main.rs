@@ -2,17 +2,34 @@
 
 mod instrument;
 
+use futures::future;
+use axum::Router;
+use tracing::error;
+
 #[tokio::main]
 async fn main() {
 	instrument::init();
 
-	let router = {
-		let router = router::create();
+	let application = {
+		let router = instrument::axum::collectors(router::create());
 
-		instrument::axum::setup(router)
+		Box::pin(server::init(router, 3000))
 	};
 
-	server::init(router).await;
+	let monitoring = {
+		let router = instrument::axum::reporters(Router::new());
+
+		Box::pin(server::init(router, 8000))
+	};
+
+	let (result, failed_future_index, _) =
+		future::select_all(vec![application, monitoring]).await;
+
+	match failed_future_index {
+		0 => error!("http server aborted: {:?}", result),
+		1 => error!("monitoring server aborted: {:?}", result),
+		_ => unreachable!("unreachable code. a catastrophic error happened"),
+	}
 
 	instrument::stop();
 }
@@ -25,7 +42,6 @@ mod router {
 	pub fn create() -> Router {
 		Router::new()
 			.route("/", get(root))
-			.route("/health", get(health))
 			.route("/hello", get(hello))
 	}
 
@@ -48,10 +64,6 @@ mod router {
 		format!("Got response: {:?}", response)
 	}
 
-	async fn health() -> &'static str {
-		"I'm healthy"
-	}
-
 	async fn hello() -> &'static str {
 		"Hello, World!"
 	}
@@ -62,8 +74,9 @@ mod server {
 	use std::net::SocketAddr;
 	use tracing::info;
 
-	pub async fn init(router: Router) {
-		let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+	pub async fn init(router: Router, port: u16) {
+		let addr = SocketAddr::from(([0, 0, 0, 0], port));
+
 		info!(
 			port = addr.port(),
 			ip = addr.ip().to_string(),
