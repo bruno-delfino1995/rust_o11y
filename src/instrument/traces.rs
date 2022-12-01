@@ -47,7 +47,8 @@ pub mod axum {
 	use tower_http::{
 		classify::{ServerErrorsAsFailures, ServerErrorsFailureClass, SharedClassifier},
 		trace::{
-			DefaultOnBodyChunk, DefaultOnEos, DefaultOnRequest, MakeSpan, OnFailure, OnResponse, TraceLayer
+			DefaultOnBodyChunk, DefaultOnEos, DefaultOnRequest, MakeSpan, OnFailure, OnResponse,
+			TraceLayer,
 		},
 	};
 	use tracing::{field::Empty, Span};
@@ -77,9 +78,12 @@ pub mod axum {
 
 			let span = tracing::info_span!(
 				"HTTP Request",
+
 				otel.name = %name,
-				otel.kind = %"server", // opentelemetry::trace::SpanKind::Server
+				otel.kind = %"server",
 				otel.status_code = Empty,
+				otel.status_message = Empty,
+
 				http.client_ip = %http.client_ip,
 				http.flavor = %http.flavor,
 				http.host = %http.host,
@@ -121,14 +125,18 @@ pub mod axum {
 			_latency: Duration,
 			span: &Span,
 		) {
+			let message = format!("HTTP request failed: {}", failure);
+
 			match failure {
 				ServerErrorsFailureClass::StatusCode(status) => {
 					if status.is_server_error() {
 						span.record("otel.status_code", "ERROR");
+						span.record("otel.status_message", message);
 					}
 				}
 				ServerErrorsFailureClass::Error(_) => {
 					span.record("otel.status_code", "ERROR");
+					span.record("otel.status_message", message);
 				}
 			}
 		}

@@ -1,15 +1,15 @@
 mod logs;
-mod traces;
 mod metrics;
+mod traces;
 
 use std::panic;
-use tracing::error;
+use tracing::{error, Span};
 use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Registry};
 
 pub fn init() {
 	let traces = traces::init();
 	let logs = logs::init();
-	let _metrics = metrics::init();
+	metrics::init();
 
 	let max_level = EnvFilter::try_from_env("LOG_LEVEL")
 		.or_else(|_| EnvFilter::try_new("info"))
@@ -31,7 +31,11 @@ pub fn init() {
 			None => (None, None),
 		};
 
-		error!(message, file = file, line = line)
+		let span = Span::current();
+		span.record("otel.status_code", "ERROR");
+		span.record("otel.status_message", "panic");
+
+		error!(message, panic = true, panic.file = file, panic.line = line)
 	}))
 }
 

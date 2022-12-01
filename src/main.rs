@@ -2,8 +2,8 @@
 
 mod instrument;
 
-use futures::future;
 use axum::Router;
+use futures::future;
 use tracing::error;
 
 #[tokio::main]
@@ -22,8 +22,7 @@ async fn main() {
 		Box::pin(server::init(router, 8000))
 	};
 
-	let (result, failed_future_index, _) =
-		future::select_all(vec![application, monitoring]).await;
+	let (result, failed_future_index, _) = future::select_all(vec![application, monitoring]).await;
 
 	match failed_future_index {
 		0 => error!("http server aborted: {:?}", result),
@@ -43,6 +42,7 @@ mod router {
 		Router::new()
 			.route("/", get(root))
 			.route("/hello", get(hello))
+			.route("/explode", get(explode))
 	}
 
 	async fn root() -> String {
@@ -53,7 +53,7 @@ mod router {
 			.build();
 
 		let response = client
-			.get("http://localhost:3000/health")
+			.get("http://localhost:3000/explode")
 			.send()
 			.await
 			.unwrap()
@@ -66,6 +66,10 @@ mod router {
 
 	async fn hello() -> &'static str {
 		"Hello, World!"
+	}
+
+	async fn explode() {
+		panic!("Why you hate me?");
 	}
 }
 
