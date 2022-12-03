@@ -1,30 +1,32 @@
-use std::collections::BTreeMap;
+use chrono::{SecondsFormat, Utc};
+use serde::Serialize;
+use serde_json::{json, Map, Value};
 use std::borrow::Borrow;
+use std::collections::btree_map::Entry;
+use std::collections::BTreeMap;
+use std::fmt;
 use std::ops::Deref;
 use std::ops::DerefMut;
-use serde::Serialize;
+use tracing::field::Visit;
+use tracing::Metadata;
+use tracing_core::{Event, Subscriber};
 use tracing_subscriber::fmt::format::JsonFields;
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::Layer;
-use tracing_subscriber::prelude::*;
-use std::fmt;
-use chrono::{SecondsFormat, Utc};
-use serde_json::{json, Map, Value};
-use tracing_core::{Subscriber, Event};
 use tracing_subscriber::fmt::{
 	self as formatter,
 	format::{self, FormatEvent, FormatFields},
-	FmtContext,
-	FormattedFields,
+	FmtContext, FormattedFields,
 };
-
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::registry::Scope;
+use tracing_subscriber::Layer;
 
 pub trait Sub: Subscriber + for<'span> LookupSpan<'span> {}
 impl<T: Subscriber + for<'span> LookupSpan<'span>> Sub for T {}
 
-pub fn init<S: Sub>() -> impl Layer<S> {
-	CustomLayer
-}
+type PortBy<'a> = Box<dyn Fn(&str) -> Option<String> + 'a>;
+
+struct Live;
 
 #[derive(Default, Clone)]
 struct Store(BTreeMap<String, Value>);
@@ -34,13 +36,40 @@ impl Store {
 		Store(BTreeMap::new())
 	}
 
-	fn pull(&mut self, fields: Vec<&str>, from: &mut Store) {
-		for field in fields.into_iter() {
-			match from.remove_entry(field) {
-				Some((key, value)) => self.0.insert(key, value),
-				None => None,
+	fn port(&mut self, source: &mut Store, keys: Vec<&str>) -> Result<(), &mut Self> {
+		let mut ported = Err(());
+
+		for k in keys {
+			match source.remove_entry(k) {
+				Some((k, v)) => {
+					self.0.insert(k, v);
+					ported = Ok(());
+				}
+				None => continue,
 			};
 		}
+
+		ported.map_err(|_| self)
+	}
+
+	fn port_by(
+		&mut self,
+		source: &mut Store,
+		predicate: PortBy,
+	) -> Result<(), &mut Self> {
+		let mut ported = Err(());
+
+		source.retain(|k, v| match predicate(k) {
+			None => true,
+			Some(nk) => {
+				self.insert(nk, v.clone());
+				ported = Ok(());
+
+				false
+			}
+		});
+
+		ported.map_err(|_| self)
 	}
 
 	fn push(&mut self, field: &str, from: Store) {
@@ -54,7 +83,9 @@ impl Store {
 
 impl Serialize for Store {
 	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-	where S: serde::Serializer {
+	where
+		S: serde::Serializer,
+	{
 		self.0.serialize(serializer)
 	}
 }
@@ -73,6 +104,10 @@ impl DerefMut for Store {
 	}
 }
 
+pub fn init<S: Sub>() -> impl Layer<S> {
+	CustomLayer
+}
+
 pub struct CustomLayer;
 impl<S: Sub> Layer<S> for CustomLayer {
 	fn on_new_span(
@@ -83,7 +118,7 @@ impl<S: Sub> Layer<S> for CustomLayer {
 	) {
 		let span = ctx.span(id).unwrap();
 		let mut fields = Store::new();
-		let mut visitor = JsonVisitor(&mut fields);
+		let mut visitor = Visitor(&mut fields);
 		attrs.record(&mut visitor);
 
 		let storage = CustomFieldStorage(fields);
@@ -104,123 +139,155 @@ impl<S: Sub> Layer<S> for CustomLayer {
 			extensions_mut.get_mut::<CustomFieldStorage>().unwrap();
 		let json_data: &mut Store = &mut custom_field_storage.0;
 
-		let mut visitor = JsonVisitor(json_data);
+		let mut visitor = Visitor(json_data);
 		values.record(&mut visitor);
 	}
 
-
 	fn on_event(&self, event: &tracing::Event<'_>, ctx: tracing_subscriber::layer::Context<'_, S>) {
 		let fields: Store = {
-			let mut base = Store::new();
+			let mut context: Store = ctx.event_scope(event).map(Scope::into).unwrap_or_default();
+			let mut metadata: Store = event.metadata().into();
+			let mut event: Store = event.into();
+			let mut live: Store = (&Live).into();
+
 			let mut runtime = Store::new();
+			runtime.port(&mut live, vec!["thread"]);
+			runtime
+				.port_by(&mut event, by_prefix("panic.", vec!["line", "file"]))
+				.or_else(|runtime| {
+					runtime.port_by(
+						&mut event,
+						by_prefix("log.", vec!["target", "line", "file"]),
+					)
+				})
+				.or_else(|runtime| runtime.port(&mut metadata, vec!["target", "line", "file"]));
 
-			let context_fields = ctx.event_scope(event).map(context_fields).unwrap_or_default();
+			let mut root = Store::new();
+			root.port(&mut event, vec!["message"]);
+			root.port(&mut metadata, vec!["level"]);
+			root.port(&mut live, vec!["timestamp"]);
 
-			let mut event_fields = event_fields(event);
-			base.pull(vec!["message"], &mut event_fields);
+			root.push("context", context);
+			root.push("data", event);
+			root.push("runtime", runtime);
 
-			let mut metadata_fields = metadata_fields(event);
-			runtime.pull(vec!["file", "line", "target"], &mut metadata_fields);
-			base.pull(vec!["level"], &mut metadata_fields);
-
-			let mut additional_fields = additional_fields();
-			base.pull(vec!["timestamp"], &mut additional_fields);
-			runtime.pull(vec!["thread"], &mut additional_fields);
-
-			base.push("context", context_fields);
-			base.push("data", event_fields);
-			base.push("runtime", runtime);
-
-			base
+			root
 		};
 
 		let output = json!(fields);
 
-		println!("{}", output.to_string());
+		println!("{}", output);
 	}
 }
 
-fn context_fields<S: Sub>(scope: tracing_subscriber::registry::Scope<S>) -> Store {
-	let mut fields = Store::new();
-	for span in scope.from_root() {
-		let extensions = span.extensions();
-		let storage = extensions.get::<CustomFieldStorage>().unwrap();
-		let mut field_data: Store = storage.0.clone();
+fn by_prefix<'a>(
+	prefix: &'a str,
+	allowed: Vec<&'a str>,
+) -> PortBy<'a> {
+	Box::new(move |key| {
+		if !key.starts_with(prefix) {
+			return None;
+		}
 
-		fields.append(&mut field_data);
-	}
+		let key = key.strip_prefix(prefix).unwrap_or_default();
 
-	fields
+		if allowed.contains(&key) {
+			Some(key.to_string())
+		} else {
+			None
+		}
+	})
 }
 
-fn event_fields(event: &tracing::Event<'_>) -> Store {
-	let mut fields = Store::new();
-	let mut visitor = JsonVisitor(&mut fields);
-	event.record(&mut visitor);
+impl<S: Sub> From<Scope<'_, S>> for Store {
+	fn from(value: Scope<'_, S>) -> Self {
+		let mut fields = Store::new();
+		for span in value.from_root() {
+			let extensions = span.extensions();
+			let storage = extensions.get::<CustomFieldStorage>().unwrap();
+			let mut field_data: Store = storage.0.clone();
 
-	fields
+			fields.append(&mut field_data);
+		}
+
+		fields
+	}
 }
 
-fn metadata_fields(event: &tracing::Event<'_>) -> Store {
-	let mut fields = Store::new();
-	let meta = event.metadata();
+impl From<&Metadata<'_>> for Store {
+	fn from(value: &Metadata<'_>) -> Self {
+		let mut fields = Store::new();
 
-	let data: Vec<(&str, Value)> = vec![
-		("target", json!(meta.target())),
-		("level", json!(format!("{:?}", meta.level()))),
-		("line", json!(meta.line())),
-		("file", json!(meta.file())),
-	];
+		let data: Vec<(&str, Value)> = vec![
+			("target", json!(value.target())),
+			("level", json!(format!("{:?}", value.level()))),
+			("line", json!(value.line())),
+			("file", json!(value.file())),
+		];
 
-	for (key, value) in data {
-		fields.insert(key.to_string(), value);
+		for (key, value) in data {
+			fields.insert(key.to_string(), value);
+		}
+
+		fields
 	}
-
-	fields
 }
 
-fn additional_fields() -> Store {
-	let mut fields = Store::new();
+impl From<&Event<'_>> for Store {
+	fn from(value: &Event<'_>) -> Self {
+		let mut fields = Store::new();
+		let mut visitor = Visitor(&mut fields);
+		value.record(&mut visitor);
 
-	let data: Vec<(&str, Value)> = vec![
-		("thread", json!(format!("{:0>2?}", std::thread::current().id()))),
-		("timestamp", json!(Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)))
-	];
-
-	for (key, value) in data {
-		fields.insert(key.to_string(), value);
+		fields
 	}
+}
 
-	fields
+impl From<&Live> for Store {
+	fn from(_value: &Live) -> Self {
+		let mut fields = Store::new();
+
+		let data: Vec<(&str, Value)> = vec![
+			(
+				"thread",
+				json!(format!("{:0>2?}", std::thread::current().id())),
+			),
+			(
+				"timestamp",
+				json!(Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)),
+			),
+		];
+
+		for (key, value) in data {
+			fields.insert(key.to_string(), value);
+		}
+
+		fields
+	}
 }
 
 struct CustomFieldStorage(Store);
 
-struct JsonVisitor<'a>(&'a mut Store);
-impl<'a> tracing::field::Visit for JsonVisitor<'a> {
+struct Visitor<'a>(&'a mut Store);
+impl<'a> Visit for Visitor<'a> {
 	fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
-		self.0
-			.insert(field.name().to_string(), json!(value));
+		self.0.insert(field.name().to_string(), json!(value));
 	}
 
 	fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
-		self.0
-			.insert(field.name().to_string(), json!(value));
+		self.0.insert(field.name().to_string(), json!(value));
 	}
 
 	fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-		self.0
-			.insert(field.name().to_string(), json!(value));
+		self.0.insert(field.name().to_string(), json!(value));
 	}
 
 	fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
-		self.0
-			.insert(field.name().to_string(), json!(value));
+		self.0.insert(field.name().to_string(), json!(value));
 	}
 
 	fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-		self.0
-			.insert(field.name().to_string(), json!(value));
+		self.0.insert(field.name().to_string(), json!(value));
 	}
 
 	fn record_error(
@@ -228,16 +295,12 @@ impl<'a> tracing::field::Visit for JsonVisitor<'a> {
 		field: &tracing::field::Field,
 		value: &(dyn std::error::Error + 'static),
 	) {
-		self.0.insert(
-			field.name().to_string(),
-			json!(value.to_string()),
-		);
+		self.0
+			.insert(field.name().to_string(), json!(value.to_string()));
 	}
 
 	fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-		self.0.insert(
-			field.name().to_string(),
-			json!(format!("{:?}", value)),
-		);
+		self.0
+			.insert(field.name().to_string(), json!(format!("{:?}", value)));
 	}
 }

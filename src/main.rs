@@ -5,7 +5,7 @@ mod instrument;
 
 use axum::Router;
 use futures::future;
-use tracing::{info, error, info_span, Span};
+use tracing::{error, info, info_span, Span};
 
 // #[tokio::main]
 // async fn main() {

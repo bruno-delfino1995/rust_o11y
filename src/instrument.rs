@@ -4,7 +4,7 @@ mod traces;
 
 use std::panic;
 use tracing::{error, event, Level, Span};
-use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Registry};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
 
 pub fn init() {
 	// let traces = traces::init();
@@ -15,12 +15,11 @@ pub fn init() {
 		.or_else(|_| EnvFilter::try_new("info"))
 		.unwrap();
 
-	let subscriber = Registry::default()
+	tracing_subscriber::registry()
 		.with(max_level)
 		// .with(traces)
-		.with(logs);
-
-	tracing::subscriber::set_global_default(subscriber)
+		.with(logs)
+		.try_init()
 		.expect("Unable to register tracing subscriber");
 
 	panic::set_hook(Box::new(|info| {
@@ -38,7 +37,7 @@ pub fn init() {
 		span.record("otel.status_code", "ERROR");
 		span.record("otel.status_message", "panic");
 
-		error!(message, panic = true, panic.file = file, panic.line = line)
+		error!(message, panic.file = file, panic.line = line)
 	}));
 }
 
