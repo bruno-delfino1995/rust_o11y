@@ -3,11 +3,11 @@ mod metrics;
 mod traces;
 
 use std::panic;
-use tracing::{error, Span};
+use tracing::{error, event, Level, Span};
 use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Registry};
 
 pub fn init() {
-	let traces = traces::init();
+	// let traces = traces::init();
 	let logs = logs::init();
 	metrics::init();
 
@@ -15,7 +15,10 @@ pub fn init() {
 		.or_else(|_| EnvFilter::try_new("info"))
 		.unwrap();
 
-	let subscriber = Registry::default().with(max_level).with(traces).with(logs);
+	let subscriber = Registry::default()
+		.with(max_level)
+		// .with(traces)
+		.with(logs);
 
 	tracing::subscriber::set_global_default(subscriber)
 		.expect("Unable to register tracing subscriber");
@@ -36,11 +39,11 @@ pub fn init() {
 		span.record("otel.status_message", "panic");
 
 		error!(message, panic = true, panic.file = file, panic.line = line)
-	}))
+	}));
 }
 
 pub fn stop() {
-	traces::stop();
+	// traces::stop();
 }
 
 pub mod axum {
