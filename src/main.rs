@@ -1,4 +1,4 @@
-#![feature(panic_info_message)]
+#![feature(panic_info_message, thread_id_value)]
 
 mod instrument;
 
@@ -8,16 +8,16 @@ use tracing::error;
 
 #[tokio::main]
 async fn main() {
-	instrument::init();
+	let _guard = instrument::init();
 
 	let application = {
-		let router = instrument::axum::collectors(router::create());
+		let router = instrument::axum::collect_from(router::create());
 
 		Box::pin(server::init(router, 3000))
 	};
 
 	let monitoring = {
-		let router = instrument::axum::reporters(Router::new());
+		let router = instrument::axum::report_at(Router::new());
 
 		Box::pin(server::init(router, 8000))
 	};
@@ -29,14 +29,13 @@ async fn main() {
 		1 => error!("monitoring server aborted: {:?}", result),
 		_ => unreachable!("unreachable code. a catastrophic error happened"),
 	}
-
-	instrument::stop();
 }
 
 mod router {
 	use axum::{routing::get, Router};
 	use reqwest_middleware::{ClientBuilder, Extension};
 	use reqwest_tracing::{OtelName, TracingMiddleware};
+	use tracing::info;
 
 	pub fn create() -> Router {
 		Router::new()
@@ -69,6 +68,8 @@ mod router {
 	}
 
 	async fn explode() {
+		info!("Are you serious?");
+
 		panic!("Why you hate me?");
 	}
 }

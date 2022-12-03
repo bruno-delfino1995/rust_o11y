@@ -7,6 +7,7 @@ edition = "2021"
 axum = "0.5.17"
 axum-prometheus = "0.2.0"
 bytes = "1.3.0"
+chrono = "0.4.23"
 futures = "0.3.25"
 http = "0.2.8"
 hyper = { version = "0.14.23", features = ["full"] }
@@ -19,10 +20,13 @@ opentelemetry-semantic-conventions = "0.10.0"
 reqwest = "0.11.13"
 reqwest-middleware = "0.2.0"
 reqwest-tracing = { version = "0.4.0", features = ["opentelemetry_0_18"] }
+serde = "1.0.148"
+serde_json = "1.0.89"
 tokio = { version = "1.24.2", features = ["full"] }
 tower = "0.4.13"
 tower-http = { version = "0.3.4", features = ["trace"] }
 tower-layer = "0.3.2"
 tracing = "0.1.37"
+tracing-core = "0.1.30"
 tracing-opentelemetry = "0.18.0"
 tracing-subscriber = { version = "0.3.16", features = ["json", "env-filter"] }

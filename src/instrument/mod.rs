@@ -4,21 +4,31 @@ mod traces;
 
 use std::panic;
 use tracing::{error, Span};
-use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Registry};
+use tracing_core::Subscriber;
+use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-pub fn init() {
-	let traces = traces::init();
-	let logs = logs::init();
-	metrics::init();
+pub trait Sub: Subscriber + for<'span> LookupSpan<'span> {}
+impl<T: Subscriber + for<'span> LookupSpan<'span>> Sub for T {}
 
+/// Guard used to control cleanup of instrumentation configs
+///
+/// There's an empty unit field to prevent outsiders from creating it manually
+pub struct Instrument(());
+
+pub fn init() -> Instrument {
 	let max_level = EnvFilter::try_from_env("LOG_LEVEL")
 		.or_else(|_| EnvFilter::try_new("info"))
 		.unwrap();
 
-	let subscriber = Registry::default().with(max_level).with(traces).with(logs);
-
-	tracing::subscriber::set_global_default(subscriber)
+	tracing_subscriber::registry()
+		.with(max_level)
+		.with(traces::init())
+		.with(logs::init())
+		.try_init()
 		.expect("Unable to register tracing subscriber");
+
+	metrics::init();
 
 	panic::set_hook(Box::new(|info| {
 		let message = match info.message() {
@@ -35,19 +45,23 @@ pub fn init() {
 		span.record("otel.status_code", "ERROR");
 		span.record("otel.status_message", "panic");
 
-		error!(message, panic = true, panic.file = file, panic.line = line)
-	}))
+		error!(message, panic.file = file, panic.line = line)
+	}));
+
+	Instrument(())
 }
 
-pub fn stop() {
-	traces::stop();
+impl Drop for Instrument {
+	fn drop(&mut self) {
+		traces::stop();
+	}
 }
 
 pub mod axum {
 	use axum::Router;
 	use tower::ServiceBuilder;
 
-	pub fn collectors(router: Router) -> Router {
+	pub fn collect_from(router: Router) -> Router {
 		let metrics_layer = super::metrics::axum::layer();
 		let trace_layer = super::traces::axum::layer();
 
@@ -58,7 +72,7 @@ pub mod axum {
 		)
 	}
 
-	pub fn reporters(router: Router) -> Router {
+	pub fn report_at(router: Router) -> Router {
 		super::metrics::axum::route(router)
 	}
 }

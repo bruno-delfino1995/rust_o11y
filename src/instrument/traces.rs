@@ -1,3 +1,5 @@
+use super::Sub;
+
 use opentelemetry::global;
 use opentelemetry::sdk::propagation::TraceContextPropagator;
 use opentelemetry::sdk::trace as sdktrace;
@@ -5,10 +7,10 @@ use opentelemetry::sdk::Resource;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_semantic_conventions as semcov;
 use tracing_subscriber::filter;
-use tracing_subscriber::registry::LookupSpan;
+
 use tracing_subscriber::Layer;
 
-pub fn init<S: tracing::Subscriber + for<'span> LookupSpan<'span>>() -> impl Layer<S> {
+pub fn init<S: Sub>() -> impl Layer<S> {
 	global::set_text_map_propagator(TraceContextPropagator::new());
 
 	let resource = Resource::new(vec![
