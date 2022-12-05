@@ -51,6 +51,7 @@ mod router {
 	use axum::{routing::get, Router};
 	use reqwest_middleware::{ClientBuilder, Extension};
 	use reqwest_tracing::{OtelName, TracingMiddleware};
+	use tracing::info;
 
 	pub fn create() -> Router {
 		Router::new()
@@ -83,6 +84,8 @@ mod router {
 	}
 
 	async fn explode() {
+		info!("Are you serious?");
+
 		panic!("Why you hate me?");
 	}
 }
