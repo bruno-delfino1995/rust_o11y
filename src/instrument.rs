@@ -3,11 +3,16 @@ mod metrics;
 mod traces;
 
 use std::panic;
-use tracing::{error, event, Level, Span};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
+use tracing::{error, Span};
+use tracing_core::Subscriber;
+use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
+pub trait Sub: Subscriber + for<'span> LookupSpan<'span> {}
+impl<T: Subscriber + for<'span> LookupSpan<'span>> Sub for T {}
 
 pub fn init() {
-	// let traces = traces::init();
+	let traces = traces::init();
 	let logs = logs::init();
 	metrics::init();
 
@@ -17,7 +22,7 @@ pub fn init() {
 
 	tracing_subscriber::registry()
 		.with(max_level)
-		// .with(traces)
+		.with(traces)
 		.with(logs)
 		.try_init()
 		.expect("Unable to register tracing subscriber");
@@ -42,7 +47,7 @@ pub fn init() {
 }
 
 pub fn stop() {
-	// traces::stop();
+	traces::stop();
 }
 
 pub mod axum {

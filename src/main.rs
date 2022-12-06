@@ -1,24 +1,10 @@
-#![feature(panic_info_message)]
-#![allow(unused)]
+#![feature(panic_info_message, thread_id_value)]
 
 mod instrument;
 
 use axum::Router;
 use futures::future;
-use tracing::{error, info, info_span, Span};
-
-// #[tokio::main]
-// async fn main() {
-// 	instrument::init();
-//
-// 	let outer_span = info_span!("outer", level = 0);
-// 	let _outer_entered = outer_span.enter();
-//
-// 	let inner_span = info_span!("inner", level = 1);
-// 	let _inner_entered = inner_span.enter();
-//
-// 	info!(a_bool = true, answer = 42, message = "first example");
-// }
+use tracing::error;
 
 #[tokio::main]
 async fn main() {
