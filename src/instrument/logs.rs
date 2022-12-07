@@ -54,25 +54,21 @@ impl<S: Sub> Layer<S> for LogLayer {
 			let mut live: Store = (&Live::new()).into();
 
 			let mut runtime = Store::new();
+			runtime.port(&mut live, vec!["thread"]);
+			runtime
+				.port_by(&mut event, by_prefix("panic.", vec!["line", "file"]))
+				.or_else(|runtime| {
+					runtime.port_by(
+						&mut event,
+						by_prefix("log.", vec!["target", "line", "file"]),
+					)
+				})
+				.or_else(|runtime| runtime.port(&mut metadata, vec!["target", "line", "file"]));
+
 			let mut root = Store::new();
-
-			#[allow(unused_must_use)]
-			{
-				runtime.port(&mut live, vec!["thread"]);
-				runtime
-					.port_by(&mut event, by_prefix("panic.", vec!["line", "file"]))
-					.or_else(|runtime| {
-						runtime.port_by(
-							&mut event,
-							by_prefix("log.", vec!["target", "line", "file"]),
-						)
-					})
-					.or_else(|runtime| runtime.port(&mut metadata, vec!["target", "line", "file"]));
-
-				root.port(&mut event, vec!["message"]);
-				root.port(&mut metadata, vec!["level"]);
-				root.port(&mut live, vec!["timestamp"]);
-			}
+			root.port(&mut event, vec!["message"]);
+			root.port(&mut metadata, vec!["level"]);
+			root.port(&mut live, vec!["timestamp"]);
 
 			root.push("context", context);
 			root.push("data", event);

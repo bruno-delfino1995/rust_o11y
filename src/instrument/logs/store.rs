@@ -1,12 +1,32 @@
 use serde::Serialize;
 use serde_json::{json, Value};
-
 use std::collections::BTreeMap;
-
 use std::ops::Deref;
 use std::ops::DerefMut;
-
 use tracing::field::Visit;
+use self::Goal::*;
+
+pub enum Goal<F> {
+	Hit,
+	Miss(F),
+}
+
+impl<F> Goal<F> {
+	pub fn or_else<T, O: FnOnce(F) -> Goal<T>>(self, op: O) -> Goal<T> {
+
+		match self {
+			Hit => Hit,
+			Miss(input) => op(input)
+		}
+	}
+
+	pub fn map_miss<T, O: FnOnce(F) -> T>(self, op: O) -> Goal<T> {
+		match self {
+			Hit => Hit,
+			Miss(input) => Miss(op(input))
+		}
+	}
+}
 
 pub type PortBy<'a> = Box<dyn Fn(&str) -> Option<String> + 'a>;
 
@@ -18,36 +38,36 @@ impl Store {
 		Store(BTreeMap::new())
 	}
 
-	pub fn port(&mut self, from: &mut Self, keys: Vec<&str>) -> Result<(), &mut Self> {
-		let mut ported = Err(());
+	pub fn port(&mut self, from: &mut Self, keys: Vec<&str>) -> Goal<&mut Self> {
+		let mut ported = Miss(());
 
 		for k in keys {
 			match from.remove_entry(k) {
 				Some((k, v)) => {
 					self.0.insert(k, v);
-					ported = Ok(());
+					ported = Hit;
 				}
 				None => continue,
 			};
 		}
 
-		ported.map_err(|_| self)
+		ported.map_miss(|_| self)
 	}
 
-	pub fn port_by(&mut self, from: &mut Self, predicate: PortBy) -> Result<(), &mut Self> {
-		let mut ported = Err(());
+	pub fn port_by(&mut self, from: &mut Self, predicate: PortBy) -> Goal<&mut Self> {
+		let mut ported = Miss(());
 
 		from.retain(|k, v| match predicate(k) {
 			None => true,
 			Some(nk) => {
 				self.insert(nk, v.clone());
-				ported = Ok(());
+				ported = Hit;
 
 				false
 			}
 		});
 
-		ported.map_err(|_| self)
+		ported.map_miss(|_| self)
 	}
 
 	pub fn port_all(&mut self, from: &mut Self) {
