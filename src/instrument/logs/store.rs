@@ -1,10 +1,10 @@
+use self::Goal::*;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use tracing::field::Visit;
-use self::Goal::*;
 
 pub enum Goal<F> {
 	Hit,
@@ -13,17 +13,16 @@ pub enum Goal<F> {
 
 impl<F> Goal<F> {
 	pub fn or_else<T, O: FnOnce(F) -> Goal<T>>(self, op: O) -> Goal<T> {
-
 		match self {
 			Hit => Hit,
-			Miss(input) => op(input)
+			Miss(input) => op(input),
 		}
 	}
 
 	pub fn map_miss<T, O: FnOnce(F) -> T>(self, op: O) -> Goal<T> {
 		match self {
 			Hit => Hit,
-			Miss(input) => Miss(op(input))
+			Miss(input) => Miss(op(input)),
 		}
 	}
 }

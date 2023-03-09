@@ -4,10 +4,12 @@ use self::store::{PortBy, Store};
 use super::Sub;
 use chrono::DateTime;
 use chrono::{SecondsFormat, Utc};
+use opentelemetry::trace::TraceContextExt;
 use serde_json::{json, Value};
 use std::thread::ThreadId;
-use tracing::Metadata;
-use tracing_core::Event;
+use tracing::{field::FieldSet, span::Record, Event, Metadata, Span};
+
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::registry::Scope;
 use tracing_subscriber::Layer;
 
@@ -80,6 +82,40 @@ impl<S: Sub> Layer<S> for LogLayer {
 		let output = json!(fields);
 
 		println!("{}", output);
+	}
+
+	fn on_enter(
+		&self,
+		id: &tracing_core::span::Id,
+		ctx: tracing_subscriber::layer::Context<'_, S>,
+	) {
+		let tracing_context = Span::current().context();
+		let otel_span = tracing_context.span();
+		let otel_ctx = otel_span.span_context();
+
+		if otel_ctx.is_valid() {
+			const TRACE_PROP: &str = "otel.trace_id";
+			let trace_id = otel_ctx.trace_id().to_string();
+			const SPAN_PROP: &str = "otel.span_id";
+			let span_id = otel_ctx.span_id().to_string();
+
+			let field_set = FieldSet::new(
+				&[TRACE_PROP, SPAN_PROP],
+				ctx.metadata(id).unwrap().callsite(),
+			);
+
+			let trace_field = field_set.field(TRACE_PROP).unwrap();
+			let span_field = field_set.field(SPAN_PROP).unwrap();
+
+			let values = [
+				(&trace_field, Some(&trace_id as &dyn tracing::Value)),
+				(&span_field, Some(&span_id as &dyn tracing::Value)),
+			];
+			let values = field_set.value_set(&values);
+			let record = Record::new(&values);
+
+			self.on_record(id, &record, ctx);
+		}
 	}
 }
 
