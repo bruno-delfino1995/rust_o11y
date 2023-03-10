@@ -481,31 +481,12 @@ name = "gollum"
 version = "0.0.0"
 dependencies = [
  "axum",
- "axum-prometheus",
- "bytes",
- "chrono",
  "futures",
- "http",
- "hyper",
- "metrics",
- "metrics-exporter-prometheus",
- "once_cell",
- "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry-semantic-conventions",
+ "instrument",
  "reqwest",
  "reqwest-middleware",
- "reqwest-tracing",
- "serde",
- "serde_json",
  "tokio",
- "tower",
- "tower-http",
- "tower-layer",
  "tracing",
- "tracing-core",
- "tracing-opentelemetry",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -691,6 +672,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a5bbe824c507c5da5956355e86a746d82e0e1464f65d862cc5e71da70e94b2c"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "instrument"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "axum-prometheus",
+ "chrono",
+ "http",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "once_cell",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry-semantic-conventions",
+ "reqwest-middleware",
+ "reqwest-tracing",
+ "serde",
+ "serde_json",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-core",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
 ]
 
 [[package]]

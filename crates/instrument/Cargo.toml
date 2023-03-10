@@ -1,0 +1,31 @@
+[package]
+name = "instrument"
+description = "Observability setup for logs + traces + metrics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+axum-prometheus = "0.2.0"
+http = "0.2.8"
+metrics-exporter-prometheus = { version = "0.11.0", default-features = false, features = ["tokio"] }
+opentelemetry = { version = "0.18.0", features = ["rt-tokio"] }
+opentelemetry-otlp = "0.11.0"
+opentelemetry-semantic-conventions = "0.10.0"
+reqwest-tracing = { version = "0.4.0", features = ["opentelemetry_0_18"] }
+tower = "0.4.13"
+tower-http = { version = "0.3.4", features = ["trace"] }
+tracing-core = "0.1.30"
+tracing-opentelemetry = "0.18.0"
+tracing-subscriber = { version = "0.3.16", features = ["json", "env-filter"] }
+
+axum.workspace = true
+chrono.workspace = true
+metrics.workspace = true
+once_cell.workspace = true
+reqwest-middleware.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true

@@ -1,0 +1,17 @@
+[package]
+name = "gollum"
+description = "Server for managing your assets"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+axum.workspace = true
+futures.workspace = true
+instrument.workspace = true
+reqwest-middleware.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+tracing.workspace = true
