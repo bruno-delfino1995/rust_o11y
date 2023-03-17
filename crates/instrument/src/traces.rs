@@ -10,12 +10,18 @@ use tracing_subscriber::filter;
 
 use tracing_subscriber::Layer;
 
-pub fn init<S: Sub>() -> impl Layer<S> {
+pub struct Options<'a> {
+	pub service: &'a str,
+	pub version: &'a str,
+	pub exporter: &'a str,
+}
+
+pub fn init<S: Sub>(opts: Options) -> impl Layer<S> {
 	global::set_text_map_propagator(TraceContextPropagator::new());
 
 	let resource = Resource::new(vec![
-		semcov::resource::SERVICE_NAME.string("gollum"),
-		semcov::resource::SERVICE_VERSION.string("0.0.0"),
+		semcov::resource::SERVICE_NAME.string(opts.service.to_string()),
+		semcov::resource::SERVICE_VERSION.string(opts.version.to_string()),
 	]);
 
 	let tracer = opentelemetry_otlp::new_pipeline()
@@ -23,7 +29,7 @@ pub fn init<S: Sub>() -> impl Layer<S> {
 		.with_exporter(
 			opentelemetry_otlp::new_exporter()
 				.tonic()
-				.with_endpoint("http://localhost:4317"),
+				.with_endpoint(opts.exporter),
 		)
 		.with_trace_config(sdktrace::config().with_resource(resource))
 		.install_batch(opentelemetry::runtime::Tokio)

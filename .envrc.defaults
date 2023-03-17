@@ -1,0 +1,2 @@
+export LOG_LEVEL="info"
+export OTLP_EXPORTER="http://localhost:4317"
